@@ -5,11 +5,12 @@ import SocketServer
 import socket
 import select
 import random
+import time
 
 periodic_timer = 30
 timeout_timer = 180
 garbage_timer = 120
-ratio = 30
+ratio = 10
 
 t_timer = timeout_timer/ratio
 g_timer = garbage_timer/ratio
@@ -34,6 +35,9 @@ class Neighbour(object):
         self.id = id
         self.metric = metric
         self.port = port
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    def fileno(self):
+        return self.socket.fileno()
 
 
 
@@ -52,7 +56,7 @@ def parse_config(f):
             m = re.findall(r"\d+-\d+-\d+", line)
             for n in m:
                 values = re.split("-", n)
-                neighbour = Neighbour(values[2], values[1], values[0])
+                neighbour = Neighbour(int(values[2]), int(values[1]), int(values[0]))
                 router.neighbours.append(neighbour)
     return router
 
@@ -67,21 +71,22 @@ if __name__ == "__main__":
         server = SocketServer.UDPServer((host, port), RouterHandler )
         input_sockets.append(server)
 
-    output_sockets = []
-    for n in router.neighbours:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        output_sockets.append(s)
+    # output_sockets = []
+    # for n in router.neighbours:
+    #     output_sockets.append(s)
 
 running = 1
 while running:
-    inputready, outputready, exceptready = select.select(input_sockets,output_sockets,[])
+    inputready, outputready, exceptready = select.select(input_sockets,router.neighbours,[])
     for s in inputready:
         s.handle_request()
 
-    for s in outputready:
+    for n in outputready:
+        host, port = "localhost", n.port
+        n.socket.sendto("From: "+ str(router.id)+"To: " + str(n.id) + "metric: " + str(n.metric), (host, port))
         p_timer = rand_p_timer()
         time.sleep(p_timer)
-        print p_timer + "pass"
+        print str(p_timer) + "Has passed"
 
 
 
