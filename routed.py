@@ -67,6 +67,11 @@ class Router(object):
             payload_string = rip_response.encode('hex')
             socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             socket.sendto(payload_string, ("localhost", n.port))
+    def clean_record(self, downid):
+        self.route_table.pop(downid, None)
+        gctimers[downid].cancel()
+        gctimers.pop(downid, None)
+        self.triggered_update(downid)
 
 
 
@@ -82,7 +87,12 @@ class Router(object):
             rip_response = rip_response + rte
         payload_string = rip_response.encode('hex')
         return payload_string
+    def pretty_print(self):
+        print "Router:" + str(self.id) +":"
+        for router_id, metric in self.route_table.iteritems(): #generate all the RTEs
+            print "to:" + str(router_id) + " takes:" + str(metric[0]) + " next:" + str(metric[0])
 
+        print ""
 class Neighbour(object):
     """ the router directly connected to it"""
     def __init__(self, id, metric, port):
@@ -113,6 +123,12 @@ class RouterHandler(SocketServer.BaseRequestHandler):
                 rte = data_io.read(40)
                 rte_array = unpack('2h4i', rte.decode('hex'))
                 router.cal_route(rte_array[2], rte_array[5], header_array[2])
+        if(timeouts.has_key(header_array[2])):
+            timeouts[header_array[2]].cancel()
+            timeouts.pop(header_array[2], None)
+            if not (gctimers.has_key(header_array[2])):
+                gctimers[header_array[2]] = threading.Timer(g_timer, router.clean_record,[header_array[2]])
+
 
 
 
@@ -145,6 +161,8 @@ if __name__ == "__main__": # main program runs
     f = open(sys.argv[1], 'r') #first argument file name
 
     router = parse_config(f) #start parse config
+    timeouts = {}
+    gctimers = {}
 
     input_sockets = []
     # timers = {}
@@ -166,8 +184,9 @@ if __name__ == "__main__": # main program runs
             # if timers[n.id]:
             #     if timers[n.id].stopped:
             #         timers[n.id] = threading.Timer(t_timer, router.triggered_update) # trigger update
-
-            print router.route_table
+            if not(timeouts.has_key(n.id)):
+                timeouts[n.id] = threading.Timer(t_timer, router.triggered_update, [n.id])
+            router.pretty_print()
             p_timer = rand_p_timer()
             time.sleep(p_timer)
 
