@@ -30,13 +30,13 @@ class Router(object):
     """
     def __init__(self, id):
         self.id = id
-        self.route_table = {id:0} # routing for itself is 0
+        self.route_table = {id:[0,id]} # routing for itself is 0
 
-    def rip_requet(self):
+    def rip_request(self):
         """ generate a rip request payload """
         rip_header = pack('2bh', 1, 2, self.id) # set command version router id
         rip_rte =  pack('2h4i', 0, 0, 1234, 0, 0, 16) #set the request entry with afi =0 request for entire table
-        payload_string = (rip_header + rip_rte).encode('hex') 
+        payload_string = (rip_header + rip_rte).encode('hex')
         return payload_string
 
     def get_port(self, router_id):
@@ -45,13 +45,13 @@ class Router(object):
             if (n.id == router_id):
                 return n.port
 
-    def cal_route(self, dst, metric, through):
+    def cal_route(self, dst, metric, next_hop):
         """ caluate the shortest route for dst and store in the routing table"""
         if dst in self.route_table:
-            if(self.route_table[dst] > metric + self.route_table[through]):
-                self.route_table[dst] = metric + self.route_table[through]
+            if(self.route_table[dst][0] > metric + self.route_table[next_hop][0]):
+                self.route_table[dst][0] = metric + self.route_table[next_hop][0]
         else:
-            self.route_table[dst] = metric + self.route_table[through]
+            self.route_table[dst] = [metric + self.route_table[next_hop][0], next_hop]
 
     def triggered_update(self, downid):
         """ genereate triggered"""
@@ -78,7 +78,7 @@ class Router(object):
             if rid == router_id: #split-horizon with posioned reverse
                 rte = pack('2h4i', 2, 0,  router_id, 0, 0, 16)
             else:
-                rte = pack('2h4i', 2, 0,  router_id, 0, 0, metric)
+                rte = pack('2h4i', 2, 0,  router_id, 0, 0, metric[0])
             rip_response = rip_response + rte
         payload_string = rip_response.encode('hex')
         return payload_string
@@ -136,7 +136,7 @@ def parse_config(f):
                 values = re.split("-", n)
                 neighbour = Neighbour(int(values[2]), int(values[1]), int(values[0]))
                 router.neighbours.append(neighbour)
-                router.route_table[int(values[2])] = int(values[1])
+                router.route_table[int(values[2])] = [int(values[1]),int(values[2])]
 
     return router
 
@@ -147,8 +147,7 @@ if __name__ == "__main__": # main program runs
     router = parse_config(f) #start parse config
 
     input_sockets = []
-    timers = {} 
-    
+    # timers = {}
     for p in router.listening_ports:
         host, port = "localhost", p
         server = SocketServer.UDPServer((host, port), RouterHandler )
@@ -160,13 +159,13 @@ if __name__ == "__main__": # main program runs
         inputready, outputready, exceptready = select.select(input_sockets,router.neighbours,[]) # non-blocking IO
         for s in inputready:
             s.handle_request()
-    
+
         for n in outputready: # for timer
             host, port = "localhost", n.port
             n.socket.sendto(router.rip_request(), (host, port))
-            if timers[n.id]:
-                if timers[n.id].stopped:
-                    timers[n.id] = threading.Timer(t_timer, router.triggered_update) # trigger update
+            # if timers[n.id]:
+            #     if timers[n.id].stopped:
+            #         timers[n.id] = threading.Timer(t_timer, router.triggered_update) # trigger update
 
             print router.route_table
             p_timer = rand_p_timer()
